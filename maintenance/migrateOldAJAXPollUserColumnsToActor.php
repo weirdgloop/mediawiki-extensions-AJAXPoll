@@ -61,9 +61,9 @@ class MigrateOldAJAXPollUserColumnsToActor extends LoggedUpdateMaintenance {
 				'ajaxpoll_vote',
 				'actor'
 			],
-			[ 'poll_ip' ],
+			[ 'poll_user' ],
 			[
-				'poll_ip = poll_user',
+				'IS_IPV4(poll_user) OR IS_IPV6(poll_user)',
 				'actor_id IS NULL'
 			],
 			__METHOD__,
@@ -79,7 +79,7 @@ class MigrateOldAJAXPollUserColumnsToActor extends LoggedUpdateMaintenance {
 		$toInsert = [];
 
 		foreach ( $res as $row ) {
-			$toInsert[] = [ 'actor_name' => $row->poll_ip ];
+			$toInsert[] = [ 'actor_name' => $row->poll_user ];
 		}
 
 		if ( !empty( $toInsert ) ) {
