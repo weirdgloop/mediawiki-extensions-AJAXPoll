@@ -43,7 +43,7 @@ class AJAXPoll {
 	static function AJAXPollRender( $input, $args = [], Parser $parser, $frame ) {
 		global $wgUser, $wgRequest, $wgUseAjax;
 
-		$parser->getOutput()->updateCacheExpiry( 0 );
+		$parser->getOutput()->updateCacheExpiry( 600 );
 		$parser->addTrackingCategory( 'ajaxpoll-tracking-category' );
 		$parser->getOutput()->addModules( 'ext.ajaxpoll' );
 
