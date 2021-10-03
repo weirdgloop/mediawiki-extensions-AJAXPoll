@@ -43,6 +43,10 @@ class AJAXPoll {
 	static function AJAXPollRender( $input, $args = [], Parser $parser, $frame ) {
 		global $wgUser, $wgRequest, $wgUseAjax;
 
+		if ( wfReadOnly() ) {
+			return 'This poll is disabled while the wiki is in read-only mode.';
+		}
+
 		$parser->getOutput()->updateCacheExpiry( 600 );
 		$parser->addTrackingCategory( 'ajaxpoll-tracking-category' );
 		$parser->getOutput()->addModules( 'ext.ajaxpoll' );
@@ -87,9 +91,9 @@ class AJAXPoll {
 		 * Register poll in the database
 		 */
 
-		$row = $dbw->selectRow(
-			[ 'ajaxpoll_info' ],
-			[ 'COUNT(poll_id) AS count' ],
+		$existingResultsBeforeVoting = $dbw->selectField(
+			'ajaxpoll_info',
+			'poll_show_results_before_voting',
 			[ 'poll_id' => $id ],
 			__METHOD__
 		);
@@ -103,7 +107,8 @@ class AJAXPoll {
 			}
 		}
 
-		if ( empty( $row->count ) ) {
+		// Only register the poll if it doesn't already exist.
+		if ( $existingResultsBeforeVoting === false ) {
 			$dbw->insert(
 				'ajaxpoll_info',
 				[
@@ -114,7 +119,8 @@ class AJAXPoll {
 				],
 				__METHOD__
 			);
-		} else {
+		// Only update the poll settings if the settings need changing.
+		} elseif ( $existingResultsBeforeVoting != $showResultsBeforeVoting ) {
 			$dbw->update(
 				'ajaxpoll_info',
 				[
