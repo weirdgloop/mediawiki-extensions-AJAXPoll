@@ -61,7 +61,7 @@ class AJAXPoll {
 
 		$row = $dbw->selectRow(
 			[ 'ajaxpoll_info' ],
-			[ 'COUNT(poll_id) AS count' ],
+			[ 'poll_show_results_before_voting' ],
 			[ 'poll_id' => $id ],
 			__METHOD__
 		);
@@ -77,7 +77,7 @@ class AJAXPoll {
 
 		$readonly = MediaWikiServices::getInstance()->getReadOnlyMode()->getReason();
 		if ( !$readonly ) {
-			if ( empty( $row->count ) ) {
+			if ( $row === false ) {
 				$dbw->insert(
 					'ajaxpoll_info',
 					[
@@ -97,7 +97,7 @@ class AJAXPoll {
 					// @see https://phabricator.wikimedia.org/T163625
 					[ 'IGNORE' ]
 				);
-			} else {
+			} elseif ( $row->poll_show_results_before_voting !== $showResultsBeforeVoting ) {
 				$dbw->update(
 					'ajaxpoll_info',
 					[
