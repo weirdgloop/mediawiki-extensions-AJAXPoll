@@ -35,7 +35,7 @@ class AJAXPoll {
 	 * @param PPFrame $frame
 	 * @return string
 	 */
-	public static function render( $input, array $args, Parser $parser, $frame ) {
+	public static function render( $input, $args, Parser $parser, $frame ) {
 		$parser->getOutput()->updateCacheExpiry( 600 );
 		$parser->addTrackingCategory( 'ajaxpoll-tracking-category' );
 		$parser->getOutput()->addModules( [ 'ext.ajaxpoll' ] );
