@@ -39,7 +39,7 @@ class AJAXPoll {
 	public static function render( $input, $args, Parser $parser, $frame ) {
 		$services = MediaWikiServices::getInstance();
 
-		$parser->getOutput()->updateCacheExpiry( 0 );
+		$parser->getOutput()->updateCacheExpiry( 600 );
 		$parser->addTrackingCategory( 'ajaxpoll-tracking-category' );
 		$parser->getOutput()->addModules( [ 'ext.ajaxpoll' ] );
 
