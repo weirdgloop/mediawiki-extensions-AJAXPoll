@@ -160,7 +160,8 @@ class AJAXPoll {
 				$x = $clock[0];
 				$y = 'hour';
 			} else {
-				$x = floor( $hr / 24 );
+				// WGL - Typoed as $hr since AJAXPoll's initial commit.
+				$x = floor( $clock[0] / 24 );
 				$y = 'day';
 			}
 		}
