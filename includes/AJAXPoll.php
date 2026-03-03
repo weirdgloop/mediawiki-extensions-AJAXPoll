@@ -37,9 +37,6 @@ class AJAXPoll {
 	 * @return string
 	 */
 	public static function render( $input, $args, Parser $parser, $frame ) {
-		$services = MediaWikiServices::getInstance();
-
-		$parser->getOutput()->updateCacheExpiry( 600 );
 		$parser->addTrackingCategory( 'ajaxpoll-tracking-category' );
 		$parser->getOutput()->addModules( [ 'ext.ajaxpoll' ] );
 
@@ -55,76 +52,16 @@ class AJAXPoll {
 		$input = trim( strip_tags( $input ) );
 		$lines = explode( "\n", trim( $input ) );
 
-		$dbw = $services->getDBLoadBalancer()->getConnection( DB_PRIMARY );
-
-		/**
-		 * Register poll in the database
-		 */
-
-		$row = $dbw->selectRow(
-			[ 'ajaxpoll_info' ],
-			[ 'poll_show_results_before_voting' ],
-			[ 'poll_id' => $id ],
-			__METHOD__
-		);
-
-		$showResultsBeforeVoting = null;
-		if ( array_key_exists( 'show-results-before-voting', $args ) ) {
-			if ( strval( $args['show-results-before-voting'] ) !== '0' ) {
-				$showResultsBeforeVoting = '1';
-			} else {
-				$showResultsBeforeVoting = '0';
-			}
-		}
-
-		$readonly = $services->getReadOnlyMode()->getReason();
-		if ( !$readonly ) {
-			if ( $row === false ) {
-				$dbw->insert(
-					'ajaxpoll_info',
-					[
-						'poll_id' => $id,
-						'poll_show_results_before_voting' => $showResultsBeforeVoting,
-						'poll_txt' => $input,
-						'poll_date' => $dbw->timestamp( wfTimestampNow() ),
-					],
-					__METHOD__,
-					// @todo FIXME: This is a crappy hack to fix obviously incorrect and nonsensical
-					// "Error: 1062 Duplicate entry '<whatever>' for key 'PRIMARY' (localhost)"
-					// error messages, one of which I saw when literally making the very first poll
-					// on a wiki, so it goes w/o saying that there can't (or at least shouldn't) be
-					// any other entries in AJAXPoll's DB tables at that time.
-					// All the DB queries in this method should be refactored and ideally instead
-					// of insert()/update() this'd use upsert().
-					// @see https://phabricator.wikimedia.org/T163625
-					[ 'IGNORE' ]
-				);
-			} elseif ( $row->poll_show_results_before_voting !== $showResultsBeforeVoting ) {
-				$dbw->update(
-					'ajaxpoll_info',
-					[
-						'poll_show_results_before_voting' => $showResultsBeforeVoting,
-					],
-					[
-						'poll_id' => $id,
-					],
-					__METHOD__
-				);
-			}
-		}
-
 		switch ( $lines[0] ) {
 			case 'STATS':
 				$ret = self::buildStats();
 				break;
 			default:
-				$user = MediaWikiServices::getInstance()
-					->getUserFactory()->newFromUserIdentity( $parser->getUserIdentity() );
 				$ret = Html::rawElement( 'div',
 					[
 						'id' => 'ajaxpoll-container-' . $id
 					],
-					self::buildHTML( $id, $user, $readonly, $lines )
+					self::buildHTML( $id, $lines )
 				);
 				break;
 		}
@@ -180,128 +117,11 @@ The last vote has been given $clockago ago.<br/>
 During the last 48 hours, {$tab2->votes} votes have been given.";
 	}
 
-	/**
-	 * @param int $id
-	 * @param string $answer
-	 * @param User $user
-	 * @return bool
-	 */
-	public static function submitVote( $id, $answer, User $user ) {
-		$services = MediaWikiServices::getInstance();
-		$readonly = $services->getReadOnlyMode()->getReason();
-
-		if ( !$user->isAllowed( 'ajaxpoll-vote' ) || $user->isBot() ) {
-			return self::buildHTML( $id, $user, $readonly );
-		}
-
-		if ( $readonly ) {
-			return self::buildHTML( $id, $user, $readonly, '' );
-		}
-
-		$dbw = $services->getDBLoadBalancer()->getConnection( DB_PRIMARY );
-
-		if ( $answer != 0 ) {
-			$answer = ++$answer;
-
-			$row = $dbw->selectRow(
-				'ajaxpoll_vote',
-				'COUNT(*) AS count',
-				[
-					'poll_id' => $id,
-					'poll_actor' => $services->getActorNormalization()->acquireActorId( $user, $dbw )
-				],
-				__METHOD__
-			);
-
-			if ( $row->count > 0 ) {
-				$pollContainerText = self::updateVote( $dbw, $id, $user, $answer );
-			} else {
-				$pollContainerText = self::addVote( $dbw, $id, $user, $answer );
-			}
-		} else { // revoking a vote
-			$pollContainerText = self::revokeVote( $dbw, $id, $user );
-		}
-
-		return self::buildHTML( $id, $user, false, '', $pollContainerText );
-	}
-
-	/**
-	 * @todo FIXME: these three *vote() methods are kinda sucky.
-	 * Ideally they'd return a Status or somesuch and wouldn't take a $dbw param
-	 * but the param is right now needed since all methods of this class are static...
-	 *
-	 * I am not amused by having to do all sorts of weird magic to get around jenkins
-	 * being stupid.
-	 *
-	 * @param Wikimedia\Rdbms\IDatabase $dbw Write connection to a database
-	 * @param string $id Poll ID
-	 * @param User $user User (object) who is voting
-	 * @param int $answer Answer option #
-	 * @return string Name of an i18n msg to show to the user
-	 */
-	public static function addVote( $dbw, $id, $user, $answer ) {
-		global $wgRequest;
-		$insertQuery = $dbw->insert(
-			'ajaxpoll_vote',
-			[
-				'poll_id' => $id,
-				'poll_actor' => MediaWikiServices::getInstance()->getActorNormalization()
-					->acquireActorId( $user, $dbw ),
-				'poll_ip' => $wgRequest->getIP(),
-				'poll_answer' => $answer,
-				'poll_date' => $dbw->timestamp( wfTimestampNow() )
-			],
-			__METHOD__
-		);
-		return ( $insertQuery ) ? 'ajaxpoll-vote-add' : 'ajaxpoll-vote-error';
-	}
-
-	/**
-	 * @param Wikimedia\Rdbms\IDatabase $dbw Write connection to a database
-	 * @param string $id Poll ID
-	 * @param User $user User (object) who is voting
-	 * @return string Name of an i18n msg to show to the user
-	 */
-	public static function revokeVote( $dbw, $id, $user ) {
-		$deleteQuery = $dbw->delete(
-			'ajaxpoll_vote',
-			[
-				'poll_id' => $id,
-				'poll_actor' => MediaWikiServices::getInstance()->getActorNormalization()->acquireActorId( $user, $dbw )
-			],
-			__METHOD__
-		);
-		return ( $deleteQuery ) ? 'ajaxpoll-vote-revoked' : 'ajaxpoll-vote-error';
-	}
-
-	/**
-	 * @param Wikimedia\Rdbms\IDatabase $dbw Write connection to a database
-	 * @param string $id Poll ID
-	 * @param User $user User (object) who is voting
-	 * @param int $answer Answer option #
-	 * @return string Name of an i18n msg to show to the user
-	 */
-	public static function updateVote( $dbw, $id, $user, $answer ) {
-		$updateQuery = $dbw->update(
-			'ajaxpoll_vote',
-			[
-				'poll_answer' => $answer,
-				'poll_date' => $dbw->timestamp( wfTimestampNow() )
-			],
-			[
-				'poll_id' => $id,
-				'poll_actor' => MediaWikiServices::getInstance()->getActorNormalization()->acquireActorId( $user, $dbw )
-			],
-			__METHOD__
-		);
-		return ( $updateQuery ) ? 'ajaxpoll-vote-update' : 'ajaxpoll-vote-error';
-	}
-
 	private static function escapeContent( $string ) {
 		return htmlspecialchars( Sanitizer::decodeCharReferences( $string ), ENT_QUOTES );
 	}
 
-	private static function buildHTML( $id, $user, $readonly, $lines = '', $extra_from_ajax = '' ) {
+	private static function buildHTML( $id, $lines = '' ) {
 		global $wgTitle, $wgLang;
 
 		$services = MediaWikiServices::getInstance();
@@ -309,19 +129,13 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 
 		$row = $dbr->selectRow(
 			'ajaxpoll_info',
-			[ 'poll_txt', 'poll_date', 'poll_show_results_before_voting' ],
+			[ 'poll_txt', 'poll_date' ],
 			[ 'poll_id' => $id ],
 			__METHOD__
 		);
 
 		if ( empty( $lines ) ) {
 			$lines = explode( "\n", trim( $row->poll_txt ) );
-		}
-
-		if ( $row->poll_show_results_before_voting !== null ) {
-			$showResultsBeforeVoting = ( $row->poll_show_results_before_voting === '1' );
-		} else {
-			$showResultsBeforeVoting = $user->isAllowed( 'ajaxpoll-view-results-before-vote' );
 		}
 
 		$start_date = $row->poll_date;
@@ -342,47 +156,8 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 
 		$amountOfVotes = array_sum( $poll_result );
 
-		// Did we vote?
-		$userVoted = false;
-		$actorId = $user->getActorId();
-		$ourLastVoteDate = '';
-
-		// If the actor ID is 0, the user hasn't been given an actor ID yet (which they would have if they had voted),
-		// so no point doing a wasteful DB lookup here.
-		if ( $actorId !== 0 ) {
-			$row = $dbr->selectRow(
-				'ajaxpoll_vote',
-				[ 'poll_answer', 'poll_date' ],
-				[
-					'poll_id' => $id,
-					'poll_actor' => $actorId
-				],
-				__METHOD__
-			);
-
-			if ( $row ) {
-				$ts = wfTimestamp( TS_MW, $row->poll_date );
-				$ourLastVoteDate = wfMessage(
-					'ajaxpoll-your-vote',
-					$lines[$row->poll_answer - 1],
-					$wgLang->timeanddate( $ts, true /* adjust? */ ),
-					$wgLang->date( $ts, true /* adjust? */ ),
-					$wgLang->time( $ts, true /* adjust? */ )
-				)->text();
-				$userVoted = true;
-			}
-		}
-
 		$ret = '';
 		if ( is_object( $wgTitle ) ) {
-			if ( !empty( $extra_from_ajax ) ) {
-				$style = 'display:inline-block';
-				$ajaxMessage = wfMessage( $extra_from_ajax )->escaped();
-			} else {
-				$style = 'display:none';
-				$ajaxMessage = '';
-			}
-
 			$ret = Html::openElement( 'div',
 				[
 					'id' => 'ajaxpoll-id-' . $id,
@@ -394,9 +169,9 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 				[
 					'id' => 'ajaxpoll-ajax-' . $id,
 					'class' => 'ajaxpoll-ajax',
-					'style' => $style
+					'style' => 'display:none',
 				],
-				$ajaxMessage
+				'Voting is disabled.'
 			);
 
 			$ret .= Html::rawElement( 'div',
@@ -404,71 +179,20 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 				self::escapeContent( $lines[0] )
 			);
 
-			// Different messages depending whether the user has already voted
-			// or has not voted, or is entitled to vote
-
-			$canRevoke = false;
-			$messages = [];
-
-			if ( $user->isAllowed( 'ajaxpoll-vote' ) ) {
-				if ( isset( $row->poll_answer ) ) {
-					$messages[] = $ourLastVoteDate;
-					$canRevoke = true;
-					$lines[] = wfMessage( 'ajaxpoll-revoke-vote' )->text();
-				} else {
-					if ( $showResultsBeforeVoting ) {
-						$messages[] = wfMessage( 'ajaxpoll-no-vote' )->text();
-					} else {
-						$messages[] = wfMessage( 'ajaxpoll-no-vote-results-after-voting' )->text();
-					}
-				}
-			} else {
-				$messages[] = wfMessage( 'ajaxpoll-vote-permission' )->text();
-			}
-
-			if ( !$user->isAllowed( 'ajaxpoll-view-results' ) ) {
-				$messages[] = wfMessage( 'ajaxpoll-view-results-permission' )->text();
-			} elseif ( !$userVoted
-				&& !$user->isAllowed( 'ajaxpoll-view-results-before-vote' )
-				&& !$showResultsBeforeVoting
-			) {
-				if ( $user->isAllowed( 'ajaxpoll-vote' ) ) {
-					$messages[] = wfMessage( 'ajaxpoll-view-results-before-vote-permission' )->text();
-				} else {
-					$messages[] = wfMessage( 'ajaxpoll-view-results-permission' )->text();
-				}
-			}
-
-			$escapedMessages = array_map( [ self::class, 'escapeContent' ], $messages );
-			$ret .= Html::rawElement( 'div',
-				[ 'class' => 'ajaxpoll-misc' ],
-				implode( '<br/>', $escapedMessages )
-			);
-
 			$ret .= Html::rawElement( 'form',
 				[
-					'method' => 'post',
-					'action' => $wgTitle->getLocalURL(),
 					'id' => 'ajaxpoll-answer-id-' . $id
 				],
-				Html::element( 'input',
-					[
-						'type' => 'hidden',
-						'name' => 'ajaxpoll-post-id',
-						'value' => $id
-					]
-				)
 			);
 
 			$linesCount = count( $lines );
 			for ( $i = 1; $i < $linesCount; $i++ ) {
-				$vote = !( $canRevoke && ( $i == $linesCount - 1 ) );
 
 				// answers are counted from 1 ... n
 				// last answer is pseudo-answer for "I want to revoke vote"
 				// and becomes answer number 0
 
-				$answer = ( $vote ) ? $i : 0;
+				$answer = $i;
 				$xid = $id . '-' . $answer;
 
 				if ( ( $amountOfVotes !== 0 ) && ( isset( $poll_result[$i + 1] ) ) ) {
@@ -480,100 +204,55 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 				}
 
 				$border = ( $percent == 0 ) ? ' border:0;' : '';
-				$isOurVote = ( isset( $row->poll_answer ) && ( $row->poll_answer - 1 == $i ) );
 
-				$resultBar = '';
-
-				if (
-					$user->isAllowed( 'ajaxpoll-view-results' ) &&
-					( $showResultsBeforeVoting || ( !$showResultsBeforeVoting && $userVoted ) ) &&
-					$vote
-				) {
-					$resultBar = Html::rawElement( 'div',
+				$resultBar = Html::rawElement( 'div',
+					[
+						'class' => 'ajaxpoll-answer-vote'
+					],
+					Html::rawElement( 'span',
 						[
-							'class' => 'ajaxpoll-answer-vote' . ( $isOurVote ? ' ajaxpoll-our-vote' : '' )
+							'title' => wfMessage( 'ajaxpoll-percent-votes' )->numParams( $percent )->escaped()
 						],
-						Html::rawElement( 'span',
-							[
-								'title' => wfMessage( 'ajaxpoll-percent-votes' )->numParams( $percent )->escaped()
-							],
-							self::escapeContent( $pollResult )
-						) .
-						Html::element( 'div',
-							[
-								'style' => 'width:' . $percent . '%;' . $border
-							]
-						)
-					);
-				}
-
-				if ( !$readonly && $user->isAllowed( 'ajaxpoll-vote' ) ) {
-					$ret .= Html::rawElement( 'div',
+						self::escapeContent( $pollResult )
+					) .
+					Html::element( 'div',
 						[
-							'id' => 'ajaxpoll-answer-' . $xid,
-							'class' => 'ajaxpoll-answer',
-							'poll' => $id,
-							'answer' => $answer,
-						],
-						Html::rawElement( 'div',
-							[
-								'class' => 'ajaxpoll-answer-name' . ( $vote ? ' ajaxpoll-answer-name-revoke' : '' )
-							],
-							Html::rawElement( 'label',
-								[ 'for' => 'ajaxpoll-post-answer-' . $xid ],
-								Html::element( 'input',
-									[
-										'type' => 'radio',
-										'id' => 'ajaxpoll-post-answer-' . $xid,
-										'name' => 'ajaxpoll-post-answer-' . $id,
-										'value' => $answer,
-										'checked' => $isOurVote ? 'true' : false,
-									]
-								) .
-								self::escapeContent( $lines[$i] )
-							)
-						) .
-						$resultBar
-					);
-				} else {
-					if ( !$user->isAllowed( 'ajaxpoll-vote' ) ) {
-						$disabledReason = wfMessage( 'ajaxpoll-vote-permission' )->escaped();
-					} else {
-						$disabledReason = wfMessage( 'ajaxpoll-readonly', $readonly )->escaped();
-					}
+							'style' => 'width:' . $percent . '%;' . $border
+						]
+					)
+				);
 
-					$ret .= Html::rawElement( 'div',
+				$ret .= Html::rawElement( 'div',
+					[
+						'id' => 'ajaxpoll-answer-' . $xid,
+						'class' => 'ajaxpoll-answer',
+						'poll' => $id,
+						'answer' => $answer
+					],
+					Html::rawElement( 'div',
 						[
-							'id' => 'ajaxpoll-answer-' . $xid,
-							'class' => 'ajaxpoll-answer',
-							'poll' => $id,
-							'answer' => $answer
+							'class' => 'ajaxpoll-answer-name'
 						],
-						Html::rawElement( 'div',
+						Html::rawElement( 'label',
 							[
-								'class' => 'ajaxpoll-answer-name'
+								'for' => 'ajaxpoll-post-answer-' . $xid,
+								'id' => 'ajaxpoll-label-disabled',
+								'title' => 'Voting is disabled.'
 							],
-							Html::rawElement( 'label',
+							Html::element( 'input',
 								[
-									'for' => 'ajaxpoll-post-answer-' . $xid,
-									'id' => 'ajaxpoll-label-disabled',
-									'title' => $disabledReason
-								],
-								Html::element( 'input',
-									[
-										'disabled' => 'disabled',
-										'type' => 'radio',
-										'id' => 'ajaxpoll-post-answer-' . $xid,
-										'name' => 'ajaxpoll-post-answer-' . $id,
-										'value' => $answer
-									]
-								) .
-								self::escapeContent( $lines[$i] )
-							)
-						) .
-						$resultBar
-					);
-				}
+									'disabled' => 'disabled',
+									'type' => 'radio',
+									'id' => 'ajaxpoll-post-answer-' . $xid,
+									'name' => 'ajaxpoll-post-answer-' . $id,
+									'value' => $answer
+								]
+							) .
+							self::escapeContent( $lines[$i] )
+						)
+					) .
+					$resultBar
+				);
 			}
 
 			$ret .= Xml::closeElement( 'form' );
@@ -590,13 +269,7 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 					'id' => 'ajaxpoll-info-' . $id,
 					'class' => 'ajaxpoll-info'
 				],
-				self::escapeContent( $pollSummary ) .
-				// @todo Just why are we exposing this in the UI, again?
-				// It's ugly and unnecessary even though technically hidden by CSS.
-				Html::element( 'div',
-					[ 'class' => 'ajaxpoll-id-info' ],
-					'poll-id ' . $id
-				)
+				self::escapeContent( $pollSummary )
 			);
 
 			$ret .= Html::closeElement( 'div' ) .

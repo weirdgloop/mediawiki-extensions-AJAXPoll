@@ -22,39 +22,7 @@ var setupEventHandlers = function () {
 		event.stopPropagation();
 		poll = choice.attr( 'poll' );
 
-		if ( $( this ).attr( 'id' ) === 'ajaxpoll-label-disabled' ) {
-			$( '#ajaxpoll-ajax-' + poll ).text( $( this ).attr( 'title' ) ).css( 'display', 'inline-block' );
-			return;
-		}
-
-		answer = choice.attr( 'answer' );
-		choice.find( '.ajaxpoll-hover-vote' ).addClass( 'ajaxpoll-checkevent' );
-		choice.find( 'input' ).prop( 'checked', 'checked' );
-		$( '#ajaxpoll-ajax-' + poll ).text( mw.message( 'ajaxpoll-submitting' ).text() ).css( 'display', 'inline-block' );
-
-		( new mw.Api() ).postWithToken( 'csrf', {
-			action: 'pollsubmitvote',
-			format: 'json',
-			poll: poll,
-			answer: answer
-		} ).done( function ( data ) {
-			$( '#ajaxpoll-container-' + poll ).html( data.pollsubmitvote.result );
-			setupEventHandlers();
-		} );
-	} );
-
-	$( '.ajaxpoll-answer-name:not(.ajaxpoll-answer-name-revoke) label' ).on( 'mouseover', function () {
-		$( this ).addClass( 'ajaxpoll-hover-vote' );
-	} );
-	$( '.ajaxpoll-answer-name:not(.ajaxpoll-answer-name-revoke) label' ).on( 'mouseout', function () {
-		$( this ).removeClass( 'ajaxpoll-hover-vote' );
-	} );
-
-	$( '.ajaxpoll-answer-name-revoke label' ).on( 'mouseover', function () {
-		$( this ).addClass( 'ajaxpoll-hover-revoke' );
-	} );
-	$( '.ajaxpoll-answer-name-revoke label' ).on( 'mouseout', function () {
-		$( this ).removeClass( 'ajaxpoll-hover-revoke' );
+		$( '#ajaxpoll-ajax-' + poll ).css( 'display', 'inline-block' );
 	} );
 };
 setupEventHandlers();

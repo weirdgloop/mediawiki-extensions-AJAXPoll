@@ -13,34 +13,13 @@
 	"requires": {
 		"MediaWiki": ">= 1.40.0"
 	},
-	"GroupPermissions": {
-		"*": {
-			"ajaxpoll-vote": false,
-			"ajaxpoll-view-results": false,
-			"ajaxpoll-view-results-before-vote": false
-		},
-		"user": {
-			"ajaxpoll-vote": true,
-			"ajaxpoll-view-results": true
-		}
-	},
-	"AvailableRights": [
-		"ajaxpoll-vote",
-		"ajaxpoll-view-results",
-		"ajaxpoll-view-results-before-vote"
-	],
 	"MessagesDirs": {
 		"AJAXPoll": [
 			"i18n"
 		]
 	},
-	"APIModules": {
-		"pollsubmitvote": "ApiAJAXPollSubmitVote"
-	},
 	"AutoloadClasses": {
-		"AJAXPoll": "includes/AJAXPoll.php",
-		"ApiAJAXPollSubmitVote": "includes/api/ApiAJAXPollSubmitVote.php",
-		"MigrateOldAJAXPollUserColumnsToActor": "maintenance/migrateOldAJAXPollUserColumnsToActor.php"
+		"AJAXPoll": "includes/AJAXPoll.php"
 	},
 	"ResourceModules": {
 		"ext.ajaxpoll": {
