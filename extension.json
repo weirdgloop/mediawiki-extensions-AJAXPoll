@@ -19,6 +19,7 @@
 		]
 	},
 	"AutoloadClasses": {
+		"MigrateOldAJAXPollUserColumnsToActor": "maintenance/migrateOldAJAXPollUserColumnsToActor.php",
 		"AJAXPoll": "includes/AJAXPoll.php"
 	},
 	"ResourceModules": {
