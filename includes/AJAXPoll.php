@@ -134,11 +134,11 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 			__METHOD__
 		);
 
-		if ( empty( $lines ) ) {
+		if ( empty( $lines ) && $row !== false ) {
 			$lines = explode( "\n", trim( $row->poll_txt ) );
 		}
 
-		$start_date = $row->poll_date;
+		$start_date = ( $row !== false) ? $row->poll_date : 0;
 
 		$q = $dbr->select(
 			'ajaxpoll_vote',
@@ -150,8 +150,10 @@ During the last 48 hours, {$tab2->votes} votes have been given.";
 
 		$poll_result = [];
 
-		foreach ( $q as $row ) {
-			$poll_result[$row->poll_answer] = $row->count;
+		if ( $row !== false ) {
+			foreach ( $q as $row ) {
+				$poll_result[$row->poll_answer] = $row->count;
+			}
 		}
 
 		$amountOfVotes = array_sum( $poll_result );
