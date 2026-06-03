@@ -30,16 +30,6 @@
 			],
 			"styles": [
 				"css/ajaxpoll.css"
-			],
-			"dependencies": [
-				"mediawiki.api"
-			],
-			"messages": [
-				"ajaxpoll-submitting"
-			],
-			"targets": [
-				"desktop",
-				"mobile"
 			]
 		}
 	},
